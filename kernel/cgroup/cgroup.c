@@ -3792,6 +3792,19 @@ static int cgroup_add_file(struct cgroup_subsys_state *css, struct cgroup *cgrp,
 		spin_unlock_irq(&cgroup_file_kn_lock);
 	}
 
+	/*
+	 * Droidspaces/LXC compatibility: a NOPREFIX hierarchy exposes the
+	 * unprefixed controller file as normal, but legacy userspace also looks
+	 * up the controller-prefixed spelling.  Keep that spelling as a kernfs
+	 * link without changing the canonical file name.
+	 */
+	if (cft->ss && (cgrp->root->flags & CGRP_ROOT_NOPREFIX) &&
+	    !(cft->flags & CFTYPE_NO_PREFIX)) {
+		snprintf(name, CGROUP_FILE_NAME_MAX, "%s.%s",
+			 cft->ss->name, cft->name);
+		kernfs_create_link(cgrp->kn, name, kn);
+	}
+
 	return 0;
 }
 
