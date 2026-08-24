@@ -24,7 +24,24 @@
 
 ### Local source changes
 
-None. No MIF, UFS, scheduler, camera, WLAN, or other kernel-source tuning patches were applied. The only addition in this repository is this release changelog.
+- Enabled `CONFIG_SCSI_MQ_DEFAULT`: Troika's UFS host now uses the supported
+  SCSI multi-queue path. `mq-deadline` is already built into this tree and is
+  selected automatically for a single-hardware-queue MQ device.
+- Moderately raised only the big-cluster CPU-to-MIF minimum constraints in the
+  interactive range (1.248–1.898 GHz). This reduces memory-bandwidth drops
+  during foreground work without raising the MIF idle floor or altering the
+  little-cluster policy.
+- Kept the vendor UFS link configuration, Gear 3/one-lane limit, interrupt
+  aggregation, Hibern8 clock gating, DMA coherency, queue-depth policy, and
+  hardware quirks unchanged. These are hardware/firmware-specific and were
+  already correctly configured.
+
+### Tuning review
+
+The accompanying `TROIKA_PERFORMANCE_AUDIT.md` records the source-level
+verification. In particular, the input reports incorrectly identify this as a
+5.10 kernel and claim MQ schedulers are absent; this source is 4.14.357 and
+already builds `mq-deadline` and Kyber. No unverified cherry-picks were used.
 
 ### Licensing and attribution
 
