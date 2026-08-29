@@ -649,6 +649,92 @@ static struct elv_fs_entry adios_attrs[] = {
 };
 
 /* ------------------------------------------------------------------ */
+/* Legacy (single-queue / sq) ops for non-blk-mq devices             */
+/* ------------------------------------------------------------------ */
+
+static int adios_sq_init_queue(struct request_queue *q, struct elevator_type *e)
+{
+	return adios_init_sched(q, e);
+}
+
+static void adios_sq_exit_queue(struct elevator_queue *eq)
+{
+	adios_exit_sched(eq);
+}
+
+static int adios_sq_dispatch(struct request_queue *q, int force)
+{
+	struct adios_data *ad = adios_qdata(q);
+	struct request *rq;
+	int ret = 0;
+
+	spin_lock(&ad->lock);
+	rq = ad->next_rq[READ] ? : ad->next_rq[WRITE];
+	if (rq) {
+		adios_del_rq_rb(ad, rq);
+		list_del_init(&rq->queuelist);
+		ret = 1;
+	}
+	spin_unlock(&ad->lock);
+
+	if (rq) {
+		elv_dispatch_sort(q, rq);
+		return 1;
+	}
+	return 0;
+}
+
+static void adios_sq_add_request(struct request_queue *q, struct request *rq)
+{
+	struct adios_data *ad = adios_qdata(q);
+	struct adios_rq_data *rd = adios_rq(rq);
+
+	if (rd) {
+		rd->tier = (rq_data_dir(rq) == READ) ? 0 : 1;
+		rd->enqueue_time = adios_now();
+		rd->deadline = rd->enqueue_time +
+			       (rq_data_dir(rq) == READ ? ad->read_expire
+							: ad->write_expire);
+	}
+	adios_add_rq_rb(ad, rq);
+	list_add_tail(&rq->queuelist, &ad->fifo_list[rq_data_dir(rq)]);
+}
+
+static enum elv_merge adios_sq_merge(struct request_queue *q, struct request **req,
+				     struct bio *bio)
+{
+	return adios_request_merge(q, req, bio);
+}
+
+static void adios_sq_merged(struct request_queue *q, struct request *req,
+			    enum elv_merge type)
+{
+	adios_request_merged(q, req, type);
+}
+
+static void adios_sq_completed(struct request_queue *q, struct request *rq)
+{
+	adios_completed_request(rq);
+}
+
+static struct elevator_type adios_iosched_sq = {
+	.ops = {
+		.sq = {
+			.elevator_init_fn	= adios_sq_init_queue,
+			.elevator_exit_fn	= adios_sq_exit_queue,
+			.elevator_dispatch_fn	= adios_sq_dispatch,
+			.elevator_add_req_fn	= adios_sq_add_request,
+			.elevator_merge_fn	= adios_sq_merge,
+			.elevator_merged_fn	= adios_sq_merged,
+			.elevator_completed_req_fn = adios_sq_completed,
+		},
+	},
+	.elevator_attrs = adios_attrs,
+	.elevator_name = "adios",
+	.elevator_owner = THIS_MODULE,
+};
+
+/* ------------------------------------------------------------------ */
 /* Elevator type                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -675,6 +761,7 @@ static struct elevator_type adios_iosched = {
 			.requeue_request	= adios_requeue_request,
 		},
 	},
+	.uses_mq = true,
 	.elevator_attrs = adios_attrs,
 	.elevator_name = "adios",
 	.elevator_owner = THIS_MODULE,
@@ -682,11 +769,27 @@ static struct elevator_type adios_iosched = {
 
 static int __init adios_iosched_init(void)
 {
-	return elv_register(&adios_iosched);
+	int ret;
+
+	ret = elv_register(&adios_iosched);
+	if (ret)
+		return ret;
+
+	/*
+	 * Also register as a legacy single-queue elevator for devices
+	 * that don't use blk-mq (e.g. UFS, some MMC, older SCSI stacks).
+	 * This makes ADIOS selectable on sda/sdb/sdc as well as mmcblk*.
+	 */
+	ret = elv_register(&adios_iosched_sq);
+	if (ret)
+		elv_unregister(&adios_iosched);
+
+	return ret;
 }
 
 static void __exit adios_iosched_exit(void)
 {
+	elv_unregister(&adios_iosched_sq);
 	elv_unregister(&adios_iosched);
 }
 
