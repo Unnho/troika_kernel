@@ -9,7 +9,8 @@ dtb-$(CONFIG_SOC_EXYNOS9610) += \
 	exynos9610-erd9610.dtbo	\
 	exynos9609-wing.dtbo \
 	exynos9609-troika_evb.dtbo \
-	exynos9609-robusta2_evb.dtbo
+	exynos9609-robusta2_evb.dtbo \
+	troika-perf-overlay.dtbo
 
 always		:= $(dtb-y) $(dtbo-y)
 subdir-y	:= $(dts-dirs)

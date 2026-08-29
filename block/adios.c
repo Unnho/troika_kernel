@@ -861,22 +861,63 @@ static struct elevator_type adios_iosched_sq = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Elevator type — sq (legacy single-queue) only                        */
+/* Elevator type — registered for both mq and sq                       */
 /*                                                                    */
-/* ADIOS is registered only as a legacy single-queue elevator so it   */
-/* is selectable on sda/sdb/sdc (UFS, older SCSI) but NOT on         */
-/* mmcblk* (which use blk-mq).  For blk-mq devices the stock          */
-/* schedulers (mq-deadline, kyber) remain available.                  */
+/* On Exynos 9610 / Motorola Troika:                                  */
+/*   - sda (UFS internal storage) uses blk-mq                          */
+/*   - mmcblk* (SD card) uses legacy single-queue                      */
+/* So ADIOS is registered for BOTH so it is selectable on both.       */
 /* ------------------------------------------------------------------ */
+
+static struct elevator_type adios_iosched = {
+	.ops = {
+		.mq = {
+			.init_sched		= adios_init_sched,
+			.exit_sched		= adios_exit_sched,
+			.init_hctx		= adios_init_hctx,
+			.exit_hctx		= adios_exit_hctx,
+
+			.allow_merge		= adios_allow_merge,
+			.bio_merge		= adios_bio_merge,
+			.request_merge		= adios_request_merge,
+			.request_merged		= adios_request_merged,
+			.requests_merged	= adios_requests_merged,
+			.prepare_request	= adios_prepare_request,
+			.finish_request		= adios_finish_request,
+			.insert_requests	= adios_insert_requests,
+			.dispatch_request	= adios_dispatch_request,
+			.has_work		= adios_has_work,
+			.completed_request	= adios_completed_request,
+			.started_request	= adios_started_request,
+			.requeue_request	= adios_requeue_request,
+		},
+	},
+	.uses_mq = true,
+	.elevator_attrs = adios_attrs,
+	.elevator_name = "adios",
+	.elevator_owner = THIS_MODULE,
+};
 
 static int __init adios_iosched_init(void)
 {
-	return elv_register(&adios_iosched_sq);
+	int ret;
+
+	ret = elv_register(&adios_iosched);
+	if (ret)
+		return ret;
+
+	/* Also register for legacy sq devices (mmcblk* on Troika) */
+	ret = elv_register(&adios_iosched_sq);
+	if (ret)
+		elv_unregister(&adios_iosched);
+
+	return ret;
 }
 
 static void __exit adios_iosched_exit(void)
 {
 	elv_unregister(&adios_iosched_sq);
+	elv_unregister(&adios_iosched);
 }
 
 module_init(adios_iosched_init);

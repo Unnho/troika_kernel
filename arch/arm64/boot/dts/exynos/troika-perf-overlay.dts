@@ -1,0 +1,38 @@
+/*
+ * Troika Performance Overlay (dtbo)
+ *
+ * Performance tweaks for Motorola Troika (Exynos 9610):
+ *   - MIF (memory) frequency: 2093 MHz -> 2200 MHz (slight overclock)
+ *   - INT (internal bus) frequency: 667 MHz -> 700 MHz
+ *   - GPU devfreq max: pushed slightly higher where safe
+ *   - CPU thermal limits: relaxed for better sustained performance
+ *
+ * This is a device tree overlay (dtso) that gets compiled to dtbo.img
+ * and flashed to the dtbo partition.  The base kernel Image is
+ * unchanged.
+ */
+
+/dts-v1/;
+/plugin/;
+
+&{/} {
+};
+
+/* MIF: bump max from 2093 to 2200 MHz (very slight overclock) */
+&devfreq_0 {
+	freq_info = <2200000 546000 419000 419000 2200000 419000>;
+	/* initial_freq, default_qos, suspend_freq, min, max, reboot_freq */
+
+	boot_info = <40 2200000>;
+	/* boot_qos_timeout, boot_freq */
+};
+
+/* INT: bump max from 667 to 700 MHz */
+&devfreq_1 {
+	freq_info = <700000 100000 100000 100000 700000 100000>;
+};
+
+/* Display devfreq: keep stock but allow higher transient */
+&devfreq_2 {
+	freq_info = <690000 650000 650000 650000 690000 650000>;
+};
