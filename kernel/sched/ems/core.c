@@ -247,6 +247,15 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 		update_band(p, old_util);
 	}
 
+	/* Monitor sysbusy state periodically */
+	monitor_sysbusy();
+
+	/*
+	 * Priority 1 : service cpu
+	 *
+	 * Service cpu selection assigns tasks that have been marked for
+	 * prefer-perf at the service level to the performance cpu.
+	 */
 	target_cpu = select_service_cpu(p);
 	if (cpu_selected(target_cpu)) {
 		strcpy(state, "service");
@@ -254,7 +263,19 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 	}
 
 	/*
-	 * Priority 1 : ontime task
+	 * Priority 2 : sysbusy scheduling
+	 *
+	 * When the system is in a busy state, sysbusy overrides the normal
+	 * scheduling decisions to optimize for the current system load level.
+	 */
+	target_cpu = sysbusy_schedule(p, prev_cpu);
+	if (cpu_selected(target_cpu)) {
+		strcpy(state, "sysbusy");
+		goto out;
+	}
+
+	/*
+	 * Priority 3 : ontime task
 	 *
 	 * If task which has more utilization than threshold wakes up, the task is
 	 * classified as "ontime task" and assigned to performance cpu. Conversely,
@@ -272,7 +293,7 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 	}
 
 	/*
-	 * Priority 2 : prefer-perf
+	 * Priority 3 : prefer-perf
 	 *
 	 * Prefer-perf is a function that operates on cgroup basis managed by
 	 * schedtune. When perfer-perf is set to 1, the tasks in the group are
@@ -288,7 +309,7 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 	}
 
 	/*
-	 * Priority 3 : task band
+	 * Priority 4 : task band
 	 *
 	 * The tasks in a process are likely to interact, and its operations are
 	 * sequential and share resources. Therefore, if these tasks are packed and
@@ -307,7 +328,7 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 	}
 
 	/*
-	 * Priority 4 : global boosting
+	 * Priority 5 : global boosting
 	 *
 	 * Global boost is a function that preferentially assigns all tasks in the
 	 * system to the performance cpu. Unlike prefer-perf, which targets only
@@ -327,7 +348,7 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 	}
 
 	/*
-	 * Priority 5 : prefer-idle
+	 * Priority 6 : prefer-idle
 	 *
 	 * Prefer-idle is a function that operates on cgroup basis managed by
 	 * schedtune. When perfer-idle is set to 1, the tasks in the group are
@@ -343,7 +364,7 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 	}
 
 	/*
-	 * Priority 6 : energy cpu
+	 * Priority 7 : energy cpu
 	 *
 	 * A scheduling scheme based on cpu energy, find the least power consumption
 	 * cpu with energy table when assigning task.
@@ -355,7 +376,7 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 	}
 
 	/*
-	 * Priority 7 : proper cpu
+	 * Priority 8 : proper cpu
 	 *
 	 * If the task failed to find a cpu to assign from the above conditions,
 	 * it means that assigning task to any cpu does not have performance and
@@ -366,6 +387,12 @@ int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int 
 		strcpy(state, "proper cpu");
 
 out:
+	/* Migrate tasks during SOMAC state */
+	somac_tasks();
+
+	/* Update profile data periodically */
+	profile_sched_data();
+
 	trace_ems_wakeup_balance(p, target_cpu, state);
 	return target_cpu;
 }
@@ -375,6 +402,10 @@ struct kobject *ems_kobj;
 static int __init init_sysfs(void)
 {
 	ems_kobj = kobject_create_and_add("ems", kernel_kobj);
+
+	sysbusy_init();
+	sysbusy_sysfs_init();
+	profile_sched_init();
 
 	return 0;
 }

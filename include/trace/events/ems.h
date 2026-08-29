@@ -467,6 +467,95 @@ TRACE_EVENT(ems_prefer_perf_service,
 	TP_printk("comm=%s pid=%d util=%lu service_cpu=%d event=%s",
 			__entry->comm, __entry->pid, __entry->util, __entry->service_cpu, __entry->event)
 );
+
+/*
+ * Tracepoint for sysbusy state change
+ */
+TRACE_EVENT(sysbusy_state,
+
+	TP_PROTO(int old_state, int new_state),
+
+	TP_ARGS(old_state, new_state),
+
+	TP_STRUCT__entry(
+		__field( int,		old_state		)
+		__field( int,		new_state		)
+	),
+
+	TP_fast_assign(
+		__entry->old_state	= old_state;
+		__entry->new_state	= new_state;
+	),
+
+	TP_printk("old_state=%d new_state=%d",
+		__entry->old_state, __entry->new_state)
+);
+
+/*
+ * Tracepoint for sysbusy somac task migration
+ */
+TRACE_EVENT(sysbusy_somac,
+
+	TP_PROTO(struct task_struct *p, unsigned long util, int src_cpu, int dst_cpu),
+
+	TP_ARGS(p, util, src_cpu, dst_cpu),
+
+	TP_STRUCT__entry(
+		__array(	char,		comm,	TASK_COMM_LEN	)
+		__field(	pid_t,		pid			)
+		__field(	unsigned long,	util			)
+		__field(	int,		src_cpu			)
+		__field(	int,		dst_cpu			)
+	),
+
+	TP_fast_assign(
+		memcpy(__entry->comm, p->comm, TASK_COMM_LEN);
+		__entry->pid		= p->pid;
+		__entry->util		= util;
+		__entry->src_cpu	= src_cpu;
+		__entry->dst_cpu	= dst_cpu;
+	),
+
+	TP_printk("comm=%s pid=%d util=%lu src_cpu=%d dst_cpu=%d",
+		__entry->comm, __entry->pid, __entry->util,
+		__entry->src_cpu, __entry->dst_cpu)
+);
+
+/*
+ * Tracepoint for ems profile tasks
+ */
+TRACE_EVENT(ems_profile_tasks,
+
+	TP_PROTO(int busy_cpu_count, unsigned long cpu_util_sum,
+		int heavy_task_count, unsigned long heavy_task_util_sum,
+		int misfit_task_count, unsigned long misfit_task_util_sum),
+
+	TP_ARGS(busy_cpu_count, cpu_util_sum, heavy_task_count, heavy_task_util_sum,
+		misfit_task_count, misfit_task_util_sum),
+
+	TP_STRUCT__entry(
+		__field(	int,		busy_cpu_count		)
+		__field(	unsigned long,	cpu_util_sum		)
+		__field(	int,		heavy_task_count	)
+		__field(	unsigned long,	heavy_task_util_sum	)
+		__field(	int,		misfit_task_count	)
+		__field(	unsigned long,	misfit_task_util_sum	)
+	),
+
+	TP_fast_assign(
+		__entry->busy_cpu_count		= busy_cpu_count;
+		__entry->cpu_util_sum		= cpu_util_sum;
+		__entry->heavy_task_count	= heavy_task_count;
+		__entry->heavy_task_util_sum	= heavy_task_util_sum;
+		__entry->misfit_task_count	= misfit_task_count;
+		__entry->misfit_task_util_sum	= misfit_task_util_sum;
+	),
+
+	TP_printk("busy_cpus=%d cpu_util_sum=%lu heavy_tasks=%d heavy_util=%lu misfit_tasks=%d misfit_util=%lu",
+		__entry->busy_cpu_count, __entry->cpu_util_sum,
+		__entry->heavy_task_count, __entry->heavy_task_util_sum,
+		__entry->misfit_task_count, __entry->misfit_task_util_sum)
+);
 #endif /* _TRACE_EMS_H */
 
 /* This part must be outside protection */

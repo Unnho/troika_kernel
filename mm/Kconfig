@@ -800,3 +800,17 @@ config PERCPU_STATS
 	  This feature collects and exposes statistics via debugfs. The
 	  information includes global and per chunk statistics, which can
 	  be used to help understand percpu memory usage.
+
+config KSWAPD_CPU
+	hex "Set kswapd cpu affinity by default"
+	default 0x3F
+	help
+	  Set kswapd cpu affinity by default. 0x3F means allowing CPU as 0 to 5.
+	  To disable this config, set this to 0.
+
+config OPLUS_MM_HACKS
+	bool "Enable hacks used by Oplus to improve memory management"
+	default y
+	help
+	  Improves memory management as well as swappiness. Used by Oplus
+	  on their devices, and has been tested on multiple devices from other OEMs.

@@ -62,6 +62,14 @@ static inline struct schedtune *task_schedtune(struct task_struct *tsk)
 	return css_st(task_css(tsk, schedtune_cgrp_id));
 }
 
+int schedtune_task_group_idx(struct task_struct *p)
+{
+	struct schedtune *st = task_schedtune(p);
+	if (!st)
+		return 0;
+	return st->idx;
+}
+
 static inline struct schedtune *parent_st(struct schedtune *st)
 {
 	return css_st(st->css.parent);

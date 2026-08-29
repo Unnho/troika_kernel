@@ -13,6 +13,9 @@
 
 #include "../sched-pelt.h"
 
+/* Forward declaration for Troika's cpu_util (in sched.h) */
+extern unsigned long cpu_util(int cpu);
+
 #define cpu_selected(cpu)	(cpu >= 0)
 #define tsk_cpus_allowed(tsk)	(&(tsk)->cpus_allowed)
 
@@ -43,6 +46,61 @@ extern unsigned int get_cpu_mips(unsigned int cpu);
 extern unsigned int get_cpu_max_capacity(unsigned int cpu);
 
 extern unsigned long boosted_task_util(struct task_struct *p);
+
+/* maximum count of tracking tasks in runqueue */
+#define TRACK_TASK_COUNT	5
+
+/* CPU capacity boundaries */
+#define MIN_CAPACITY_CPU	0
+#define MAX_CAPACITY_CPU	(NR_CPUS - 1)
+
+/* Multi-load task util wrappers (Troika uses standard PELT) */
+static inline unsigned long ml_task_util(struct task_struct *p)
+{
+	return task_util(p);
+}
+
+static inline unsigned long ml_cpu_util(int cpu)
+{
+	return cpu_util(cpu);
+}
+
+/* Profile and scheduling status */
+struct system_profile_data {
+	int			busy_cpu_count;
+	int			heavy_task_count;
+	int			misfit_task_count;
+
+	unsigned long		cpu_util_sum;
+	unsigned long		heavy_task_util_sum;
+	unsigned long		misfit_task_util_sum;
+	unsigned long		heaviest_task_util;
+
+	unsigned long		cpu_util[NR_CPUS];
+};
+
+#define BUSY_CPU_RATIO		(150)
+#define HEAVY_TASK_UTIL_RATIO	(40)
+#define MISFIT_TASK_UTIL_RATIO	(80)
+#define check_busy(util, cap)	((util * 100) >= (cap * 80))
+
+extern const unsigned int et_get_max_capacity(void);
+
+static inline int is_heavy_task_util(unsigned long util)
+{
+	return (util * 100) >= (et_get_max_capacity() * HEAVY_TASK_UTIL_RATIO);
+}
+
+static inline int is_misfit_task_util(unsigned long util)
+{
+	return (util * 100) >= (et_get_max_capacity() * MISFIT_TASK_UTIL_RATIO);
+}
+
+extern int profile_sched_init(void);
+extern int profile_sched_data(void);
+extern void get_system_sched_data(struct system_profile_data *data);
+
+extern int schedtune_task_group_idx(struct task_struct *p);
 
 static inline struct task_struct *task_of(struct sched_entity *se)
 {

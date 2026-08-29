@@ -23,6 +23,8 @@ int schedtune_ontime_en(struct task_struct *tsk);
 void schedtune_enqueue_task(struct task_struct *p, int cpu);
 void schedtune_dequeue_task(struct task_struct *p, int cpu);
 
+int schedtune_task_group_idx(struct task_struct *p);
+
 #else /* CONFIG_SCHED_TUNE */
 
 #define schedtune_cpu_boost(cpu)  0
@@ -35,5 +37,7 @@ void schedtune_dequeue_task(struct task_struct *p, int cpu);
 
 #define schedtune_enqueue_task(task, cpu) do { } while (0)
 #define schedtune_dequeue_task(task, cpu) do { } while (0)
+
+#define schedtune_task_group_idx(p) 0
 
 #endif /* CONFIG_SCHED_TUNE */
