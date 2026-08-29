@@ -96,9 +96,15 @@ static inline int is_misfit_task_util(unsigned long util)
 	return (util * 100) >= (et_get_max_capacity() * MISFIT_TASK_UTIL_RATIO);
 }
 
-extern int profile_sched_init(void);
-extern int profile_sched_data(void);
-extern void get_system_sched_data(struct system_profile_data *data);
+static inline int profile_sched_init(void) { return 0; }
+static inline int profile_sched_data(void) { return 0; }
+static inline void get_system_sched_data(struct system_profile_data *data) { }
+
+static inline void monitor_sysbusy(void) { }
+static inline int sysbusy_schedule(struct task_struct *p, int prev_cpu) { return prev_cpu; }
+static inline int sysbusy_init(void) { return 0; }
+static inline int sysbusy_sysfs_init(void) { return 0; }
+static inline void somac_tasks(void) { }
 
 extern int schedtune_task_group_idx(struct task_struct *p);
 
