@@ -112,6 +112,19 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
 unsigned int sysctl_sched_wakeup_granularity		= 1000000UL;
 unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
+#ifdef CONFIG_SCHED_BORE
+u8   sched_burst_fork_atavistic __read_mostly = 1;
+uint sched_burst_cache_lifetime __read_mostly = 5000000;
+u8   sched_burst_penalty_max __read_mostly = 200;
+uint sched_burst_smoothness __read_mostly = 100;
+u8   sched_burst_penalty_scale __read_mostly = 20;
+u8   sched_adaptive_embargo __read_mostly = 30;
+
+#define sched_BURST_PENALTY_MAX ((unsigned int)sched_burst_penalty_max < 200U ? \
+	(unsigned int)sched_burst_penalty_max : 200U)
+#define SCHED_BURST_CACHE_LIFETIME_MIN 500000
+#endif
+
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_WALT
@@ -3959,6 +3972,13 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 		se->vruntime = vruntime;
 	else
 		se->vruntime = max_vruntime(se->vruntime, vruntime);
+
+#ifdef CONFIG_SCHED_BORE
+	if (se->burst_penalty) {
+		u64 penalty = se->burst_penalty * sched_burst_smoothness * NSEC_PER_MSEC;
+		se->vruntime += penalty;
+	}
+#endif
 }
 
 static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
@@ -4028,6 +4048,18 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		se->vruntime += cfs_rq->min_vruntime;
 
 	update_curr(cfs_rq);
+
+#ifdef CONFIG_SCHED_BORE
+	if (!(flags & ENQUEUE_WAKEUP) || (flags & ENQUEUE_MIGRATED)) {
+		u64 now = ktime_get_ns();
+		s64 delta = now - se->exec_start;
+
+		if (delta > 0)
+			se->burst_time = (u64)delta;
+		else
+			se->burst_time = 0;
+	}
+#endif
 
 	/*
 	 * Otherwise, renormalise after, such that we're placed at the current
@@ -4124,6 +4156,34 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * Update run-time statistics of the 'current'.
 	 */
 	update_curr(cfs_rq);
+
+#ifdef CONFIG_SCHED_BORE
+	if (flags & DEQUEUE_SLEEP) {
+		u64 prev_runtime = se->prev_sum_exec_runtime;
+		u64 curr_runtime = se->sum_exec_runtime;
+		u64 delta = curr_runtime - prev_runtime;
+		u8 new_penalty;
+		u8 emb_exp, emb_arg;
+		u8 emb_old = 0;
+
+		new_penalty = (delta < (u64)sched_burst_penalty_scale * NSEC_PER_MSEC) ? 0 :
+			(u8)min((u32)(delta / ((u64)sched_burst_penalty_scale * NSEC_PER_MSEC)),
+			(u32)sched_BURST_PENALTY_MAX);
+
+		emb_arg = (u8)min((unsigned int)sched_adaptive_embargo, 200U);
+		emb_exp = emb_arg + 128;
+		if (cfs_rq->nr_running > 1)
+			emb_old = (u8)min((u64)(cfs_rq->nr_running * emb_exp) >> 7, (u64)200);
+
+		new_penalty = max(new_penalty, emb_old);
+		new_penalty = max(new_penalty, se->curr_burst_penalty);
+		new_penalty = max(new_penalty, se->prev_burst_penalty);
+		se->prev_burst_penalty = se->curr_burst_penalty;
+		se->curr_burst_penalty = new_penalty;
+		se->burst_penalty = new_penalty;
+		se->burst_time = 0;
+	}
+#endif
 
 	/*
 	 * When dequeuing a sched_entity, we must:
@@ -4298,6 +4358,13 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 		se = cfs_rq->next;
 
 	clear_buddies(cfs_rq, se);
+
+#ifdef CONFIG_SCHED_BORE
+	if (se && se->burst_penalty) {
+		u64 vruntime_bonus = se->burst_penalty * sched_burst_smoothness * NSEC_PER_MSEC;
+		se->vruntime -= vruntime_bonus;
+	}
+#endif
 
 	return se;
 }
@@ -12002,5 +12069,13 @@ __init void init_sched_fair_class(void)
 
 	alloc_eenv();
 #endif /* SMP */
+
+#ifdef CONFIG_SCHED_BORE
+	if (sched_burst_penalty_max > 200) sched_burst_penalty_max = 200;
+	if (sched_burst_fork_atavistic > 3) sched_burst_fork_atavistic = 3;
+	if (sched_burst_smoothness > 1000) sched_burst_smoothness = 1000;
+	if (sched_burst_penalty_scale > 100) sched_burst_penalty_scale = 100;
+	if (sched_adaptive_embargo > 200) sched_adaptive_embargo = 200;
+#endif
 
 }
