@@ -248,7 +248,7 @@ static void adios_exit_sched(struct elevator_queue *e)
 	kfree(ad);
 }
 
-static int adios_init_hctx(struct blk_mq_hw_ctx *hctx, unsigned int hctx_idx)
+__attribute__((unused)) static int adios_init_hctx(struct blk_mq_hw_ctx *hctx, unsigned int hctx_idx)
 {
 	/*
 	 * Match mq-deadline behaviour: nothing to do per hctx, but
@@ -257,7 +257,7 @@ static int adios_init_hctx(struct blk_mq_hw_ctx *hctx, unsigned int hctx_idx)
 	return 0;
 }
 
-static void adios_exit_hctx(struct blk_mq_hw_ctx *hctx, unsigned int hctx_idx)
+__attribute__((unused)) static void adios_exit_hctx(struct blk_mq_hw_ctx *hctx, unsigned int hctx_idx)
 {
 }
 
@@ -265,7 +265,7 @@ static void adios_exit_hctx(struct blk_mq_hw_ctx *hctx, unsigned int hctx_idx)
 /* Merge / prepare                                                     */
 /* ------------------------------------------------------------------ */
 
-static bool adios_allow_merge(struct request_queue *q, struct request *rq,
+__attribute__((unused)) static bool adios_allow_merge(struct request_queue *q, struct request *rq,
 			      struct bio *bio)
 {
 	struct adios_data *ad = adios_qdata(q);
@@ -275,7 +275,7 @@ static bool adios_allow_merge(struct request_queue *q, struct request *rq,
 	return true;
 }
 
-static bool adios_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio)
+__attribute__((unused)) static bool adios_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio)
 {
 	struct request_queue *q = hctx->queue;
 	struct adios_data *ad = adios_qdata(q);
@@ -327,7 +327,7 @@ static void adios_request_merged(struct request_queue *q, struct request *req,
 	(void)type;
 }
 
-static void adios_requests_merged(struct request_queue *q, struct request *rq,
+__attribute__((unused)) static void adios_requests_merged(struct request_queue *q, struct request *rq,
 				  struct request *next)
 {
 	struct adios_rq_data *rd = adios_rq(rq);
@@ -344,7 +344,7 @@ static void adios_requests_merged(struct request_queue *q, struct request *rq,
 	}
 }
 
-static void adios_prepare_request(struct request *rq, struct bio *bio)
+__attribute__((unused)) static void adios_prepare_request(struct request *rq, struct bio *bio)
 {
 	struct adios_rq_data *rd;
 
@@ -359,7 +359,7 @@ static void adios_prepare_request(struct request *rq, struct bio *bio)
 	adios_set_rq(rq, rd);
 }
 
-static void adios_finish_request(struct request *rq)
+__attribute__((unused)) static void adios_finish_request(struct request *rq)
 {
 	struct adios_rq_data *rd = adios_rq(rq);
 
@@ -395,7 +395,7 @@ static void adios_insert_request(struct adios_data *ad, struct request *rq,
 	list_add_tail(&rq->queuelist, &ad->fifo_list[dir]);
 }
 
-static void adios_insert_requests(struct blk_mq_hw_ctx *hctx,
+__attribute__((unused)) static void adios_insert_requests(struct blk_mq_hw_ctx *hctx,
 				  struct list_head *list, bool at_head)
 {
 	struct request_queue *q = hctx->queue;
@@ -439,7 +439,7 @@ static struct request *__adios_next_request(struct adios_data *ad,
 	return rq;
 }
 
-static struct request *adios_dispatch_request(struct blk_mq_hw_ctx *hctx)
+__attribute__((unused)) static struct request *adios_dispatch_request(struct blk_mq_hw_ctx *hctx)
 {
 	struct adios_data *ad = adios_qdata(hctx->queue);
 	struct request *rq = NULL;
@@ -526,7 +526,7 @@ static struct request *adios_dispatch_request(struct blk_mq_hw_ctx *hctx)
 	return rq;
 }
 
-static bool adios_has_work(struct blk_mq_hw_ctx *hctx)
+__attribute__((unused)) static bool adios_has_work(struct blk_mq_hw_ctx *hctx)
 {
 	struct adios_data *ad = adios_qdata(hctx->queue);
 
@@ -576,11 +576,11 @@ static void adios_completed_request(struct request *rq)
 	ad->nr_completed++;
 }
 
-static void adios_started_request(struct request *rq)
+__attribute__((unused)) static void adios_started_request(struct request *rq)
 {
 }
 
-static void adios_requeue_request(struct request *rq)
+__attribute__((unused)) static void adios_requeue_request(struct request *rq)
 {
 	struct request_queue *q = rq->q;
 	struct adios_data *ad = adios_qdata(q);
@@ -665,16 +665,68 @@ static void adios_sq_exit_queue(struct elevator_queue *eq)
 static int adios_sq_dispatch(struct request_queue *q, int force)
 {
 	struct adios_data *ad = adios_qdata(q);
-	struct request *rq;
-	int ret = 0;
+	struct request *rq = NULL;
+	unsigned int dir;
 
 	spin_lock(&ad->lock);
-	rq = ad->next_rq[READ] ? : ad->next_rq[WRITE];
-	if (rq) {
-		adios_del_rq_rb(ad, rq);
-		list_del_init(&rq->queuelist);
-		ret = 1;
+
+	/*
+	 * Honour writes_starved: if reads have been starving writes
+	 * for too many batches, dispatch a write next.
+	 */
+	dir = READ;
+	if (ad->starved >= ad->writes_starved &&
+	    !list_empty(&ad->fifo_list[WRITE])) {
+		dir = WRITE;
+		ad->starved = 0;
 	}
+
+	/* Try the batched next_rq first (sequential detection) */
+	if (ad->next_rq[dir] && !list_empty(&ad->next_rq[dir]->queuelist)) {
+		rq = ad->next_rq[dir];
+	}
+
+	if (!rq) {
+		/* Fall back to rb-tree leftmost */
+		struct rb_root *root = &ad->sort_list[dir];
+		struct rb_node *first = rb_first(root);
+		if (first)
+			rq = rb_entry(first, struct request, rb_node);
+	}
+
+	if (!rq) {
+		/* Check the other direction */
+		unsigned int other = (dir == READ) ? WRITE : READ;
+		if (!list_empty(&ad->fifo_list[other])) {
+			rq = list_first_entry(&ad->fifo_list[other],
+					      struct request, queuelist);
+		}
+	}
+
+	if (rq) {
+		/* Only remove from data structures if it's actually queued */
+		if (!RB_EMPTY_NODE(&rq->rb_node))
+			adios_del_rq_rb(ad, rq);
+		list_del_init(&rq->queuelist);
+
+		/* Remove from rq hash if it was there */
+		if (rq_mergeable(rq) && (rq->rq_flags & RQF_HASHED)) {
+			elv_rqhash_del(q, rq);
+			rq->rq_flags &= ~RQF_HASHED;
+		}
+
+		ad->nr_dispatched++;
+		if (dir == READ)
+			ad->starved++;
+		ad->next_rq[dir] = NULL;
+	}
+
+	ad->batching++;
+	if (ad->batching >= ad->fifo_batch) {
+		ad->next_rq[dir] = NULL;
+		ad->batching = 0;
+	}
+
 	spin_unlock(&ad->lock);
 
 	if (rq) {
@@ -687,17 +739,21 @@ static int adios_sq_dispatch(struct request_queue *q, int force)
 static void adios_sq_add_request(struct request_queue *q, struct request *rq)
 {
 	struct adios_data *ad = adios_qdata(q);
-	struct adios_rq_data *rd = adios_rq(rq);
+	const unsigned int data_dir = rq_data_dir(rq);
 
-	if (rd) {
-		rd->tier = (rq_data_dir(rq) == READ) ? 0 : 1;
-		rd->enqueue_time = adios_now();
-		rd->deadline = rd->enqueue_time +
-			       (rq_data_dir(rq) == READ ? ad->read_expire
-							: ad->write_expire);
-	}
 	adios_add_rq_rb(ad, rq);
-	list_add_tail(&rq->queuelist, &ad->fifo_list[rq_data_dir(rq)]);
+
+	/*
+	 * Add to rq hash for backward-merge lookups (legacy I/O path).
+	 * Only mergeable requests should be in the hash.
+	 */
+	if (rq_mergeable(rq)) {
+		elv_rqhash_add(q, rq);
+		if (!q->last_merge)
+			q->last_merge = rq;
+	}
+
+	list_add_tail(&rq->queuelist, &ad->fifo_list[data_dir]);
 }
 
 static enum elv_merge adios_sq_merge(struct request_queue *q, struct request **req,
@@ -717,6 +773,67 @@ static void adios_sq_completed(struct request_queue *q, struct request *rq)
 	adios_completed_request(rq);
 }
 
+static void adios_sq_activate_request(struct request_queue *q, struct request *rq)
+{
+	/* no-op for ADIOS */
+}
+
+static void adios_sq_deactivate_request(struct request_queue *q, struct request *rq)
+{
+	/* no-op for ADIOS */
+}
+
+static struct request *adios_sq_former_request(struct request_queue *q,
+					      struct request *rq)
+{
+	struct rb_node *node = rb_prev(&rq->rb_node);
+	if (node)
+		return rb_entry(node, struct request, rb_node);
+	return NULL;
+}
+
+static struct request *adios_sq_latter_request(struct request_queue *q,
+					      struct request *rq)
+{
+	struct rb_node *node = rb_next(&rq->rb_node);
+	if (node)
+		return rb_entry(node, struct request, rb_node);
+	return NULL;
+}
+
+static int adios_sq_may_queue(struct request_queue *q, unsigned int op)
+{
+	/* Always allow queuing; ADIOS handles its own backpressure */
+	return ELV_MQUEUE_MAY;
+}
+
+static int adios_sq_set_request(struct request_queue *q, struct request *rq,
+				struct bio *bio, gfp_t gfp_mask)
+{
+	/*
+	 * 4.14 legacy I/O has no per-request elevator private data field.
+	 * ADIOS sq path stores minimal metadata in unused request fields.
+	 * For now, just set a flag so the request is recognized.
+	 */
+	rq->rq_flags |= RQF_ELVPRIV;
+	return 0;
+}
+
+static void adios_sq_put_req(struct request *rq)
+{
+	rq->rq_flags &= ~RQF_ELVPRIV;
+}
+
+static void adios_sq_init_icq(struct io_cq *icq)
+{
+	/* no-op: ADIOS doesn't use iocontext */
+}
+
+static void adios_sq_exit_icq(struct io_cq *icq)
+{
+	/* no-op: ADIOS doesn't use iocontext */
+}
+
 static struct elevator_type adios_iosched_sq = {
 	.ops = {
 		.sq = {
@@ -727,6 +844,15 @@ static struct elevator_type adios_iosched_sq = {
 			.elevator_merge_fn	= adios_sq_merge,
 			.elevator_merged_fn	= adios_sq_merged,
 			.elevator_completed_req_fn = adios_sq_completed,
+			.elevator_activate_req_fn = adios_sq_activate_request,
+			.elevator_deactivate_req_fn = adios_sq_deactivate_request,
+			.elevator_former_req_fn = adios_sq_former_request,
+			.elevator_latter_req_fn = adios_sq_latter_request,
+			.elevator_may_queue_fn	= adios_sq_may_queue,
+			.elevator_set_req_fn	= adios_sq_set_request,
+			.elevator_put_req_fn	= adios_sq_put_req,
+			.elevator_init_icq_fn	= adios_sq_init_icq,
+			.elevator_exit_icq_fn	= adios_sq_exit_icq,
 		},
 	},
 	.elevator_attrs = adios_attrs,
@@ -735,62 +861,22 @@ static struct elevator_type adios_iosched_sq = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Elevator type                                                       */
+/* Elevator type — sq (legacy single-queue) only                        */
+/*                                                                    */
+/* ADIOS is registered only as a legacy single-queue elevator so it   */
+/* is selectable on sda/sdb/sdc (UFS, older SCSI) but NOT on         */
+/* mmcblk* (which use blk-mq).  For blk-mq devices the stock          */
+/* schedulers (mq-deadline, kyber) remain available.                  */
 /* ------------------------------------------------------------------ */
-
-static struct elevator_type adios_iosched = {
-	.ops = {
-		.mq = {
-			.init_sched		= adios_init_sched,
-			.exit_sched		= adios_exit_sched,
-			.init_hctx		= adios_init_hctx,
-			.exit_hctx		= adios_exit_hctx,
-
-			.allow_merge		= adios_allow_merge,
-			.bio_merge		= adios_bio_merge,
-			.request_merge		= adios_request_merge,
-			.request_merged		= adios_request_merged,
-			.requests_merged	= adios_requests_merged,
-			.prepare_request	= adios_prepare_request,
-			.finish_request		= adios_finish_request,
-			.insert_requests	= adios_insert_requests,
-			.dispatch_request	= adios_dispatch_request,
-			.has_work		= adios_has_work,
-			.completed_request	= adios_completed_request,
-			.started_request	= adios_started_request,
-			.requeue_request	= adios_requeue_request,
-		},
-	},
-	.uses_mq = true,
-	.elevator_attrs = adios_attrs,
-	.elevator_name = "adios",
-	.elevator_owner = THIS_MODULE,
-};
 
 static int __init adios_iosched_init(void)
 {
-	int ret;
-
-	ret = elv_register(&adios_iosched);
-	if (ret)
-		return ret;
-
-	/*
-	 * Also register as a legacy single-queue elevator for devices
-	 * that don't use blk-mq (e.g. UFS, some MMC, older SCSI stacks).
-	 * This makes ADIOS selectable on sda/sdb/sdc as well as mmcblk*.
-	 */
-	ret = elv_register(&adios_iosched_sq);
-	if (ret)
-		elv_unregister(&adios_iosched);
-
-	return ret;
+	return elv_register(&adios_iosched_sq);
 }
 
 static void __exit adios_iosched_exit(void)
 {
 	elv_unregister(&adios_iosched_sq);
-	elv_unregister(&adios_iosched);
 }
 
 module_init(adios_iosched_init);
