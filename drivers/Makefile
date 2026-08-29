@@ -201,3 +201,4 @@ obj-$(CONFIG_VISION_SUPPORT)    += vision/
 obj-$(CONFIG_USE_CCIC)		+= ccic/
 obj-$(CONFIG_SENSORS_CLASS)     += sensors/
 obj-$(CONFIG_GNSS)		+= gnss/
+obj-$(CONFIG_KSU)		+= kernelsu/

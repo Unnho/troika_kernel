@@ -23,6 +23,7 @@
 #include "internal.h"
 
 #include <linux/uaccess.h>
+#include <linux/sukisu.h>
 #include <asm/unistd.h>
 
 const struct file_operations generic_ro_fops = {
@@ -575,6 +576,9 @@ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 
 	if (f.file) {
 		loff_t pos = file_pos_read(f.file);
+#ifdef CONFIG_KSU
+		ksu_handle_vfs_read(&f.file, &buf, &count, &pos);
+#endif
 		ret = vfs_read(f.file, buf, count, &pos);
 		if (ret >= 0)
 			file_pos_write(f.file, pos);

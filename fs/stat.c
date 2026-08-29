@@ -19,6 +19,7 @@
 #include <linux/compat.h>
 
 #include <linux/uaccess.h>
+#include <linux/sukisu.h>
 #include <asm/unistd.h>
 
 /**
@@ -360,6 +361,10 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 	struct kstat stat;
 	int error;
 
+#ifdef CONFIG_KSU
+	ksu_handle_stat(&dfd, &filename, &flag);
+#endif
+
 	error = vfs_fstatat(dfd, filename, &stat, flag);
 	if (error)
 		return error;
@@ -371,6 +376,10 @@ SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
 {
 	struct kstat stat;
 	int error = vfs_fstat(fd, &stat);
+
+#ifdef CONFIG_KSU
+	ksu_handle_vfs_fstat(fd, &stat.size);
+#endif
 
 	if (!error)
 		error = cp_new_stat(&stat, statbuf);
@@ -492,6 +501,10 @@ SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)
 	struct kstat stat;
 	int error = vfs_fstat(fd, &stat);
 
+#ifdef CONFIG_KSU
+	ksu_handle_vfs_fstat(fd, &stat.size);
+#endif
+
 	if (!error)
 		error = cp_new_stat64(&stat, statbuf);
 
@@ -503,6 +516,10 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
 {
 	struct kstat stat;
 	int error;
+
+#ifdef CONFIG_KSU
+	ksu_handle_stat(&dfd, &filename, &flag);
+#endif
 
 	error = vfs_fstatat(dfd, filename, &stat, flag);
 	if (error)

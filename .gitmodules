@@ -1,0 +1,4 @@
+[submodule "SukiSU"]
+	path = SukiSU
+	url = https://github.com/Unnho/SukiSU-Ultra.git
+	branch = troika-4.14-compat
