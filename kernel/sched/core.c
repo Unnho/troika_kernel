@@ -2244,8 +2244,12 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.vruntime			= 0;
 #ifdef CONFIG_SCHED_BORE
 	p->se.burst_time = 0;
+	p->se.prev_burst_penalty = 0;
 	p->se.curr_burst_penalty = 0;
+	p->se.burst_penalty = 0;
 	p->se.burst_score = 0;
+	p->se.child_burst = 0;
+	p->se.child_burst_cnt = 0;
 	p->se.child_burst_last_cached = 0;
 #endif
 #ifdef CONFIG_SCHED_WALT
@@ -2521,8 +2525,12 @@ static void __init sched_init_bore(void) {
 
 void inline sched_fork_bore(struct task_struct *p) {
 	p->se.burst_time = 0;
+	p->se.prev_burst_penalty = 0;
 	p->se.curr_burst_penalty = 0;
+	p->se.burst_penalty = 0;
 	p->se.burst_score = 0;
+	p->se.child_burst = 0;
+	p->se.child_burst_cnt = 0;
 	p->se.child_burst_last_cached = 0;
 }
 
