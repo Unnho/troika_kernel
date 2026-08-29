@@ -5440,7 +5440,9 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 	if (uclamp_can_ignore_uclamp_max(rq, p)) {
 		uclamp_set_ignore_uclamp_max(p);
+#ifdef CONFIG_UCLAMP_TASK
 		uclamp_rq_dec_id(rq, p, UCLAMP_MAX);
+#endif
 	}
 
 	/*
