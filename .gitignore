@@ -129,3 +129,4 @@ kernel/configs/android-*.cfg
 arch/arm64/lib/lib.a.symversions
 dtbo.img
 lib/lib.a.symversions
+/out/
