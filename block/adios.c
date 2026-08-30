@@ -681,9 +681,20 @@ static int adios_sq_dispatch(struct request_queue *q, int force)
 		ad->starved = 0;
 	}
 
-	/* Try the batched next_rq first (sequential detection) */
-	if (ad->next_rq[dir] && !list_empty(&ad->next_rq[dir]->queuelist)) {
-		rq = ad->next_rq[dir];
+	/*
+	 * Validate next_rq[dir]: only use it if it is still in our
+	 * fifo_list (i.e. hasn't been dispatched or merged away).
+	 * A stale next_rq pointer is the most common source of
+	 * panics in legacy I/O schedulers.
+	 */
+	if (ad->next_rq[dir]) {
+		if (!list_empty_careful(&ad->next_rq[dir]->queuelist) &&
+		    !RB_EMPTY_NODE(&ad->next_rq[dir]->rb_node)) {
+			rq = ad->next_rq[dir];
+		} else {
+			/* stale; clear it */
+			ad->next_rq[dir] = NULL;
+		}
 	}
 
 	if (!rq) {
@@ -718,7 +729,9 @@ static int adios_sq_dispatch(struct request_queue *q, int force)
 		ad->nr_dispatched++;
 		if (dir == READ)
 			ad->starved++;
-		ad->next_rq[dir] = NULL;
+		/* Clear next_rq since this request is gone */
+		if (ad->next_rq[dir] == rq)
+			ad->next_rq[dir] = NULL;
 	}
 
 	ad->batching++;
@@ -740,6 +753,15 @@ static void adios_sq_add_request(struct request_queue *q, struct request *rq)
 {
 	struct adios_data *ad = adios_qdata(q);
 	const unsigned int data_dir = rq_data_dir(rq);
+	unsigned long flags;
+
+	/*
+	 * The legacy I/O path calls add_request without holding our
+	 * spinlock, so we must take it here to avoid racing with
+	 * dispatch.  This was the cause of the sda crash under I/O
+	 * load (NULL/stale pointer dereference in dispatch).
+	 */
+	spin_lock_irqsave(&ad->lock, flags);
 
 	adios_add_rq_rb(ad, rq);
 
@@ -754,22 +776,51 @@ static void adios_sq_add_request(struct request_queue *q, struct request *rq)
 	}
 
 	list_add_tail(&rq->queuelist, &ad->fifo_list[data_dir]);
+
+	/* If we are now the first request in the dir, set next_rq */
+	if (!ad->next_rq[data_dir] || ad->next_rq[data_dir] == rq)
+		ad->next_rq[data_dir] = rq;
+
+	spin_unlock_irqrestore(&ad->lock, flags);
 }
 
 static enum elv_merge adios_sq_merge(struct request_queue *q, struct request **req,
 				     struct bio *bio)
 {
-	return adios_request_merge(q, req, bio);
+	struct adios_data *ad = adios_qdata(q);
+	enum elv_merge ret;
+	unsigned long flags;
+
+	/*
+	 * The legacy I/O path does NOT hold our lock when calling merge.
+	 * Take it here to avoid racing with dispatch/insert.  The
+	 * underlying adios_request_merge() walks the rbtree and reads
+	 * q->last_merge, both of which dispatch also touches.
+	 */
+	spin_lock_irqsave(&ad->lock, flags);
+	ret = adios_request_merge(q, req, bio);
+	spin_unlock_irqrestore(&ad->lock, flags);
+	return ret;
 }
 
 static void adios_sq_merged(struct request_queue *q, struct request *req,
 			    enum elv_merge type)
 {
+	struct adios_data *ad = adios_qdata(q);
+	unsigned long flags;
+
+	spin_lock_irqsave(&ad->lock, flags);
 	adios_request_merged(q, req, type);
+	spin_unlock_irqrestore(&ad->lock, flags);
 }
 
 static void adios_sq_completed(struct request_queue *q, struct request *rq)
 {
+	/*
+	 * adios_completed_request only updates EWMA stats, which are
+	 * already protected by being atomic-ish (u64 reads on 64-bit).
+	 * No lock needed.
+	 */
 	adios_completed_request(rq);
 }
 
@@ -786,7 +837,19 @@ static void adios_sq_deactivate_request(struct request_queue *q, struct request 
 static struct request *adios_sq_former_request(struct request_queue *q,
 					      struct request *rq)
 {
-	struct rb_node *node = rb_prev(&rq->rb_node);
+	struct adios_data *ad = adios_qdata(q);
+	struct rb_node *node;
+	unsigned long flags;
+
+	spin_lock_irqsave(&ad->lock, flags);
+	/* Guard against stale rb_node pointers under heavy I/O */
+	if (RB_EMPTY_NODE(&rq->rb_node)) {
+		spin_unlock_irqrestore(&ad->lock, flags);
+		return NULL;
+	}
+	node = rb_prev(&rq->rb_node);
+	spin_unlock_irqrestore(&ad->lock, flags);
+
 	if (node)
 		return rb_entry(node, struct request, rb_node);
 	return NULL;
@@ -795,7 +858,18 @@ static struct request *adios_sq_former_request(struct request_queue *q,
 static struct request *adios_sq_latter_request(struct request_queue *q,
 					      struct request *rq)
 {
-	struct rb_node *node = rb_next(&rq->rb_node);
+	struct adios_data *ad = adios_qdata(q);
+	struct rb_node *node;
+	unsigned long flags;
+
+	spin_lock_irqsave(&ad->lock, flags);
+	if (RB_EMPTY_NODE(&rq->rb_node)) {
+		spin_unlock_irqrestore(&ad->lock, flags);
+		return NULL;
+	}
+	node = rb_next(&rq->rb_node);
+	spin_unlock_irqrestore(&ad->lock, flags);
+
 	if (node)
 		return rb_entry(node, struct request, rb_node);
 	return NULL;
