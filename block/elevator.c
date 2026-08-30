@@ -229,19 +229,14 @@ int elevator_init(struct request_queue *q, char *name)
 
 	if (!e) {
 		/*
-		 * For blk-mq devices, we default to using adios (if
-		 * available), then mq-deadline for single queue devices.
-		 * If neither is available OR we have multiple queues,
-		 * default to "none".
+		 * For blk-mq devices, we default to using mq-deadline,
+		 * if available, for single queue devices. If deadline
+		 * isn't available OR we have multiple queues, default
+		 * to "none".
 		 */
 		if (q->mq_ops) {
-			if (q->nr_hw_queues == 1) {
-#ifdef CONFIG_MQ_IOSCHED_ADIOS
-				e = elevator_get(q, "adios", false);
-#endif
-				if (!e)
-					e = elevator_get(q, "mq-deadline", false);
-			}
+			if (q->nr_hw_queues == 1)
+				e = elevator_get(q, "mq-deadline", false);
 			if (!e)
 				return 0;
 		} else
