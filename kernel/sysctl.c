@@ -128,7 +128,9 @@ static int __maybe_unused neg_one = -1;
 static int zero;
 static int __maybe_unused one = 1;
 static int __maybe_unused two = 2;
+static int __maybe_unused three = 3;
 static int __maybe_unused four = 4;
+static int __maybe_unused two_hundred = 200;
 static unsigned long one_ul = 1;
 static unsigned long long_max = LONG_MAX;
 static int one_hundred = 100;
@@ -149,6 +151,16 @@ static int minolduid;
 
 static int ngroups_max = NGROUPS_MAX;
 static const int cap_last_cap = CAP_LAST_CAP;
+
+#ifdef CONFIG_SCHED_BORE
+extern unsigned int sched_bore;
+extern unsigned int sched_burst_fork_atavistic;
+extern unsigned int sched_burst_cache_lifetime;
+extern unsigned int sched_burst_penalty_max;
+extern unsigned int sched_burst_smoothness;
+extern unsigned int sched_burst_penalty_scale;
+extern unsigned int sched_adaptive_embargo;
+#endif
 
 /*this is needed for proc_doulongvec_minmax of sysctl_hung_task_timeout_secs */
 #ifdef CONFIG_DETECT_HUNG_TASK
@@ -431,6 +443,63 @@ static struct ctl_table kern_table[] = {
 	},
 #endif /* CONFIG_SCHEDSTATS */
 #endif /* CONFIG_SMP */
+#ifdef CONFIG_SCHED_BORE
+	{
+		.procname	= "sched_bore",
+		.data		= &sched_bore,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &one,
+	},
+	{
+		.procname	= "sched_burst_fork_atavistic",
+		.data		= &sched_burst_fork_atavistic,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &three,
+	},
+	{
+		.procname	= "sched_burst_cache_lifetime",
+		.data		= &sched_burst_cache_lifetime,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "sched_burst_penalty_max",
+		.data		= &sched_burst_penalty_max,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &two_hundred,
+	},
+	{
+		.procname	= "sched_burst_smoothness",
+		.data		= &sched_burst_smoothness,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "sched_burst_penalty_scale",
+		.data		= &sched_burst_penalty_scale,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "sched_adaptive_embargo",
+		.data		= &sched_adaptive_embargo,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+#endif
 #ifdef CONFIG_NUMA_BALANCING
 	{
 		.procname	= "numa_balancing_scan_delay_ms",
